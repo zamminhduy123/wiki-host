@@ -26,28 +26,6 @@ class LlamaServerProvider(LLMProvider):
         self._model_name = settings.llm_model or "Qwen3.6-35B-A3B-UD-Q4_K_M"
         logger.info(f"Initialized LlamaServerProvider using model: {self._model_name} at {self._base_url}")
 
-    def generate(self, prompt: str, schema: type[T]) -> T:
-        url = f"{self._base_url}/v1/completions"
-        schema_json = schema.model_json_schema()
-
-        # Add a clear instruction to return JSON in the correct format
-        instruction = (
-            "Return a JSON object that matches the following schema. "
-            "Do not include any other text, explanation, or formatting. "
-            "Just return the raw JSON object.\n\n"
-            f"Schema: {schema_json}"
-        )
-        full_prompt = f"{prompt}\n\n{instruction}"
-
-        payload = {
-            "model": self._model_name,
-            "prompt": full_prompt,
-            "stream": False,
-            "options": {"temperature": 0.2},
-        }
-
-        logger.info(f"Initialized LlamaServerProvider using model: {self._model_name} at {self._base_url}")
-
     def _extract_text(self, data: dict) -> str:
         """Attempt to extract the model's structured JSON output from known response shapes.
 
@@ -104,19 +82,25 @@ class LlamaServerProvider(LLMProvider):
                     # Join lines between indices, skipping the ``` lines themselves
                     text = "\n".join(lines[start+1:end]).strip()
 
-            # If still no valid JSON, try to extract a JSON object/array from the text
-            if text and not (text.strip().startswith(("{", "[")) and text.strip().endswith(("}", "]"))):
-                text = self._extract_json_from_text(text)
+            if text:
+                try:
+                    json.loads(text)
+                except json.JSONDecodeError:
+                    text = self._extract_json_from_text(text)
 
         return text
 
     def _extract_json_from_text(self, text: str) -> str:
-        """Try to find and extract a valid JSON object or array from plain text."""
+        """Try to find and extract a valid JSON object from plain text.
+        If multiple JSON objects are found, returns the last one, as the first
+        is often a hallucinated schema template like "string".
+        """
         # Look for JSON objects (starting with {)
         brace_count = 0
-        bracket_count = 0
         start_idx = -1
+        last_valid_json = None
         
+        # Keep scanning the text to find all valid JSON objects, keep the last one.
         for i, char in enumerate(text):
             if char == "{":
                 if brace_count == 0:
@@ -125,32 +109,19 @@ class LlamaServerProvider(LLMProvider):
             elif char == "}":
                 brace_count -= 1
                 if brace_count == 0 and start_idx != -1:
-                    # Found a complete JSON object
+                    # Found a complete JSON object candidate
                     candidate = text[start_idx:i+1].strip()
                     try:
                         json.loads(candidate)
-                        logger.debug(f"Extracted JSON object from text: {candidate[:100]}...")
-                        return candidate
-                    except json.JSONDecodeError:
-                        pass
-                    start_idx = -1
-            elif char == "[":
-                if bracket_count == 0:
-                    start_idx = i
-                bracket_count += 1
-            elif char == "]":
-                bracket_count -= 1
-                if bracket_count == 0 and start_idx != -1:
-                    # Found a complete JSON array
-                    candidate = text[start_idx:i+1].strip()
-                    try:
-                        json.loads(candidate)
-                        logger.debug(f"Extracted JSON array from text: {candidate[:100]}...")
-                        return candidate
+                        last_valid_json = candidate
                     except json.JSONDecodeError:
                         pass
                     start_idx = -1
         
+        if last_valid_json:
+            logger.debug(f"Extracted JSON object from text: {last_valid_json[:100]}...")
+            return last_valid_json
+            
         # If no valid JSON found, return the original text
         logger.warning(f"Could not extract valid JSON from text: {text[:200]}...")
         return text
@@ -167,7 +138,8 @@ class LlamaServerProvider(LLMProvider):
             "options": {"temperature": 0.2},
         }
 
-        logger.debug(f"LlamaServerProvider POSTing to {url}...")
+        logger.info(f"LlamaServerProvider POSTing to {url} with schema: {json.dumps(schema_json)[:200]}...")
+        logger.debug(f"FULL PROMPT:\n{prompt}")
 
         headers = {}
         if self._api_key:
@@ -183,13 +155,15 @@ class LlamaServerProvider(LLMProvider):
 
             try:
                 data = response.json()
+                logger.info(f"Raw response from Llama server: {json.dumps(data)[:300]}...")
             except Exception:
                 # Not JSON — treat as raw text
                 raw = response.text
-                logger.debug("Llama server returned non-JSON response; trying to validate raw text")
+                logger.warning(f"Llama server returned non-JSON response: {raw[:300]}")
                 return schema.model_validate_json(raw)
 
             extracted = self._extract_text(data)
+            logger.info(f"Extracted JSON string before validation: {extracted[:300]}...")
 
             # If extracted is a dict, validate directly; if it's a string, assume JSON string
             try:

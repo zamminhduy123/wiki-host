@@ -44,7 +44,7 @@ async def route_query(
     on_status: Optional[Callable[[str], None]] = None,
 ) -> QueryRouting:
     if on_status:
-        on_status("Navigating wiki index to find relevant files...")
+        await on_status("Navigating wiki index to find relevant files...")
 
     prompt = f"""\
 {_QUERY_ROUTING_PROMPT}
@@ -69,18 +69,17 @@ Respond with a valid JSON object matching the QueryRouting schema.
 # ─── Call 2: Answer Synthesis ─────────────────────────────────────
 
 _RESEARCHER_ANSWER_PROMPT = """\
-You are the Researcher — a precise, knowledgeable assistant.
+You are the Researcher — a precise, conversational, and knowledgeable assistant.
 
-Your job is to extract facts from the provided wiki files to answer the user's
-question accurately.
+Your job is to answer the user's question accurately based on the wiki files provided.
 
 CRITICAL RULES:
-- DO NOT talk about the files (e.g., avoid "Based on the files..." or "File X says...").
-- Answer the question DIRECTLY as if you already know the information.
-- Use ONLY the provided wiki content.
-- Cite your sources in the "sources" field with the exact filename and excerpt.
-- If the information is missing, use the "confidence" field to say so.
-- Use professional, clean markdown formatting.
+- DO NOT say "Based on the files...". Answer DIRECTLY as if you already know the information.
+- If the question is conversational or conversational metadata (e.g. "What can you answer?", "Who are you?", "Hi"), answer naturally based on your role as a personal knowledge wiki navigator.
+- If asking about specific factual data, use the provided wiki content.
+- Cite your sources in the "sources" field if you use them. Each source MUST use exactly the properties "filename" and "relevant_excerpt". If no sources are used (like for general chat), leave the "sources" array empty.
+- DO NOT output the JSON schema template or placeholders like "string". Output ONLY the final json answer.
+- If the information is missing from the wiki, state that clearly but remain helpful.
 - NEVER mention "the index" or "the available files". Just give the answer.
 """
 
@@ -92,7 +91,7 @@ async def answer_query(
 ) -> ResearcherAnswer:
     if on_status:
         count = len(fetched_files)
-        on_status(f"Synthesizing answer from {count} relevant wiki file(s)...")
+        await on_status(f"Synthesizing answer from {count} relevant wiki file(s)...")
 
     if not fetched_files:
         return ResearcherAnswer(
@@ -106,10 +105,10 @@ async def answer_query(
         files_section_parts.append(f"### {path}\n```markdown\n{content}\n```")
     files_section = "\n\n".join(files_section_parts)
 
-    prompt = f"""\
-{_RESEARCHER_ANSWER_PROMPT}
+    logger.info("Sneak peak into files_section content: %s...", files_section[:500])
 
----
+    prompt = f"""\
+{_RESEARCHER_ANSWER_PROMPT}---
 ## Relevant Wiki Content
 {files_section}
 
