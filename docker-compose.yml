@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  librarian-agent:
+    build: .
+    container_name: librarian-agent
+    restart: always
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    restart: always
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    command:
+      - "http"
+      - "--url=divorcee-work-pessimism.ngrok-free.dev"
+      - "librarian-agent:8000"
+    depends_on:
+      - librarian-agent
