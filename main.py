@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from config import settings  # triggers env var validation at import time
-from routers import lint, query, webhook, ws_query, ollama_proxy
+from routers import lint, query, webhook, ws_query, ollama_proxy, tts
 
 # ─── Logging Setup ───────────────────────────────────────────────────────────
 
@@ -78,6 +78,7 @@ app.include_router(query.router, tags=["Researcher"])
 app.include_router(ws_query.router, tags=["Real-time Researcher"])
 app.include_router(lint.router, tags=["Maintenance"])
 app.include_router(ollama_proxy.router, prefix="/ollama", tags=["Ollama Proxy"])
+app.include_router(tts.router, prefix="/api", tags=["Text-to-Speech"])
 
 
 
@@ -111,4 +112,5 @@ if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
     logger.info("Starting Librarian Agent on %s:%d", host, port)
-    uvicorn.run("main:app", host=host, port=port, reload=False)
+    uvicorn.run("main:app", host=host, port=port, reload=True)
+

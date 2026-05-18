@@ -38,3 +38,7 @@ text.txt
 .pytest_cache/
 .coverage
 htmlcov/
+
+# outputs / test
+outputs/
+notebooks/outputs
